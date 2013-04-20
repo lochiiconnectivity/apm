@@ -1,0 +1,1090 @@
+#!/usr/bin/perl
+
+use APM;
+use Carp;
+use Getopt::Long;
+
+=pod
+
+=head1 NAME
+
+        apm-tool
+
+=head1 ABSTRACT
+
+        Tool to manipulate and report on the APM system
+
+=head1 SYNOPSIS
+
+        Usage:  
+                General:
+
+                --help                  Show this help
+                --debug (level)         Enable debugging (optional level, 1=std, 2=stacktrace)
+                --version               Print version and exit;
+
+                Provisioning Operations: 
+
+		Object parameters :
+			[--scope <SCOPE>] --name <NAME> --type <TYPE> --gtype <TYPE> --value <VALUE> --enabled [0|1]
+
+		Policy parameters:
+			--name <NAME> --type <TYPE> --enabled [0|1]
+
+		Rule parameters:
+	
+			--parent-pol <ID> --pol-seq [SEQ] --action [permit|deny] --proto [proto object] 
+			--s-ip-obj [source ip object] --s-port-obj [source port object]
+			--d-ip-obj [dest ip object] --d-port-obj [dest port object]
+			--annotation [annotation string] --enabled [0|1]
+
+		Application parameters:
+
+			--apply-pol <ID> --router <ROUTER> --interface <INTERFACE> --direction [in|out] --enabled [0|1]
+
+		Import parameters:
+
+			--apply-import		Apply changes when importing
+
+
+		--newobj 		<OBJECT PARAMETERS>				Create an object
+		--editobj 	<ID>	<OBJECT PARAMETERS>				Edit an object
+		--delobj 	<ID>							Delete object by ID
+
+		--groupadd 	<GID> --id <ID>						Add obj ID to group GID
+		--groupdel 	<GID> --id <ID>						Del obj ID from group GID
+
+		--newpol		<POLICY PARAMETERS>				Create a policy
+		--editpol	<ID> 	<POLICY PARAMETERS>				Edit a policy
+		--delpol	<ID>							Delete a policy by ID
+		--mergepol	<SRCID> <DSTID>						Merge policy SRC into policy DST
+
+		--newrule		<RULE PARAMETERS>				Create a rule
+		--editrule	<ID>	<RULE PARAMETERS>				Edit a rule
+		--delrule	<ID>							Delete a rule
+		--moverule	<PID> <SEQ> [before|after] <SEQ2>			Move rule SEQ before of after SEQ2 in policy PID (-1 = end)
+
+		--newapp		<APPLICATION PARAMETERS>			Create an application
+		--editapp	<ID>	<APPLICATION PARAMETERS>			Edit an application
+		--delapp	<ID>							Delete an application
+
+		--import	[IMPORT PARAMETERS]	<FILE>				Import configuration from file (autodetects type)
+											Supported types are: IOS
+
+		--apply									Apply all applications that need applying
+
+		Reporting Operations:
+
+		--getobj 	<ID>	Get object by ID
+		--listobj		List all objects
+		--listgroup 	<GID>	List members of group GID
+		--listscope 	<SID>	List members of scope SID
+
+		--getpol 	<ID>	Get policy by ID
+		--listpol		List all Policies
+		--pol2acl	<ID>	Dump ACL for policy <ID>
+
+		--getrule	<ID>	Get rule by ID
+		--listrule	[--parent-pol <PID>]	List rules, optionally by parent policy ID
+
+		--getapp	<ID>	Get application by ID
+		--listapp	[--apply-pol <PID> ]	List applications, optionally by policy ID they refer to
+
+		--dbstatus	Get Database Status
+
+
+		Datatypes:
+
+		--id	<ID>		Specify an object by ID
+
+		--name	<NAME>		Provide an object, policy, rule or application with a name
+		--type	<TYPE>		Provide an object or policy with a type, currently IPV4_ADDR/IPV6_ADDR/IP_PROTO
+					TCP_PORT/UDP_PORT/ICMP_TYPECODE
+
+		--gtype	<TYPE>		Same as type, defines what type an OBJ_GROUP will have
+
+		--value	<VALUE>		Provide an object with a value
+
+		--parent-pol <ID>	Provide a parent policy ID for a rule
+		--apply-pol <ID>	Provide a policy ID for an application
+		--pol-seq <SEQ>		Provide a sequence number for a policy rule (optional)
+		--action [permit|deny]	Tell a rule that it will be a permit or deny rule
+		--proto <proto obj>	Provide rule  protocol object by name or id (optional)
+		--s-ip-obj <ip obj>	Provide rule source ip object by name or id (optional)
+		--s-port-obj <ip obj>	Provide rule source port object by name or id (optional)
+		--d-ip-obj <ip obj>	Provide rule destination ip object by name or id (optional)
+		--d-port-obj <ip obj>	Provide rule destination port object by name or id (optional)
+		--annotation <str>	Provide rule with an annotation	(optional)
+
+		--router <router>	Provide name of router for application
+		--interface <interface> Provide name of router interface for application
+		--direction <direction>	Provide direction of application on router interface for application
+
+
+		--enabled	[0|1]	Set if the object is enabled or not (0 or 1)
+
+
+		Optional Parameters:
+
+		--tcam-optimise		Optimise outputted ACL ranges for cisco TCAM LOU
+					Can be used with --pol2acl only.
+
+		--force	<ID>		Force application <ID> to be re-applied
+
+
+=head1 DESCRIPTION
+
+        apm-tool manipulates and reports on the APM system
+
+	Examples of use:
+
+	1. Manipulating Objects
+
+	$ apm-tool --newobj --name WEBSERVER_1 --type IPV4_ADDR --value 192.168.20.3 
+	Object WEBSERVER_1 has ID 1 in the DB
+
+	$ apm-tool --newobj --name WEBSERVER_2 --type IPV4_ADDR --value 192.168.20.4 
+	Object WEBSERVER_2 has ID 2 in the DB
+
+	$ apm-tool --newobj --name DMZ_NETWORK --type IPV4_ADDR --value 192.168.21.0/24 
+	Object DMZ_NETWORK has ID 3 in the DB
+
+	$ apm-tool --newobj --name TRUSTED --type OBJ_GROUP --gtype IPV4_ADDR --value 1
+	Object TRUSTED has ID 4 in the DB
+
+	$ apm-tool --addgroup 4 --id 1
+	Object group 4 modified
+
+	$ apm-tool --addgroup 4 --id 2
+	Object group 4 modified
+
+	$ apm-tool --getobj 4
+
+	E ID	   TYPE			NAME		        	VALUE
+	- ----	-------------		--------------------------	-----------------------
+	1 4	OBJ_GROUP(IPV4_ADDR)	TRUSTED                   	(1) 192.168.20.3
+  									(2) 192.168.20.4
+
+
+	$ apm-tool --editobj 1 --value 192.168.20.2
+	Object 1 modified
+
+	$ apm-tool --delobj 1 
+	Object is a member of a group, can not delete
+
+	$ apm-tool --delgroup 4 --id 1	
+	Object 4 modified
+
+	$ apm-tool --delobj 1 
+	Object 1 deleted
+
+	$ apm-tool --delobj 4
+	Object 4 deleted
+
+	2. Manipulating policies
+
+	$ apm-tool --newpol --name PERMIT_TRUSTED_TO_DMZ --type IPV4_ADDR
+	Policy PERMIT_TRUSTED_TO_DMZ created in DB with ID 2
+
+	$ apm-tool --editpol 2 --name PERMIT_TRUSTED_TO_DMZ(OLD)
+	Policy 2 Modified
+
+	$ apm-tool --delpol 2 
+	Policy 2 Deleted
+
+	3. Manipulating rules once you have created a policy in which to place them
+
+	a. Create a rule using named objects
+
+	$ apm-tool --newrul --parent-pol 2 --action permit --proto [TCP] --s-ip-obj [TRUSTED] --d-ip-obj [DMZ] --d-ip-obj [HTTP] -annotation "Allow trusted to DMZ on port 80"
+
+
+=head1 TODO
+
+        This program provides virtually no feedback, I advise you to use the webinterface
+
+=cut
+
+unless ($ARGV[0]) {
+        print "Type: $0 --help to see documentation\n";
+}
+
+unless (GetOptions (
+                'help'          =>      \$help,
+                'debug:i'    	=>      \$debug,
+                'version'       =>      \$version,
+                'newobj'       	=>      \$newobj,
+		'editobj=i'	=>	\$editobj,
+		'delobj=i'	=>	\$delobj,
+		'listgroup=i'	=>	\$listgroup,
+		'listscope=i'	=>	\$listscope,
+		'groupadd=i'	=>	\$groupadd,
+		'groupdel=i'	=>	\$groupdel,
+                'getobj=i'     	=>      \$getobj,
+                'listobj'     	=>      \$listobj,
+		'newpol'	=>	\$newpol,
+		'editpol=i'	=>	\$editpol,
+		'delpol=i'	=>	\$delpol,
+		'mergepol=i{2}'	=>	\@mergepol,
+                'listpol'     	=>      \$listpol,
+                'getpol=i'     	=>      \$getpol,
+                'pol2acl=i'   	=>      \$pol2acl,
+		'newrule'	=>	\$newrule,
+		'editrule=i'	=>	\$editrule,
+		'delrule=i'	=>	\$delrule,
+		'newapp'	=>	\$newapp,
+		'editapp=i'	=>	\$editapp,
+		'delapp=i'	=>	\$delapp,
+		'moverule=s{4}'	=>	\@moverule,
+		'getrule=i'	=>	\$getrule,
+		'listrule'	=>	\$listrule,
+		'getapp=i'	=>	\$getapp,
+		'listapp'	=>	\$listapp,
+		'import=s'	=>	\$import,
+		'apply-import'	=>	\$applyimport,
+		'apply'		=>	\$applyall,
+		'dbstatus'	=>	\$dbstatus,
+		'id=i'		=>	\$provid,
+		'scope=i'	=>	\$provscope,
+		'name=s'	=>	\$provname,
+		'type=s'	=>	\$provtype,
+		'gtype=s'	=>	\$provgtype,
+		'value=s'	=>	\$provvalue,
+		'parent-pol=i'	=>	\$provparentpol,
+		'apply-pol=i'	=>	\$provapplypol,
+		'pol-seq=i'	=>	\$provpolseq,
+		'action=s'	=>	\$provaction,
+		'proto=s'	=>	\$provproto,
+		's-ip-obj=s'	=>	\$provsio,
+		's-port-obj=s'	=>	\$provspo,
+		'd-ip-obj=s'	=>	\$provdio,
+		'd-port-obj=s'	=>	\$provdpo,
+		'annotation=s'	=>	\$provannotation,
+		'router=s'	=>	\$provrouter,
+		'interface=s'	=>	\$provinterface,
+		'direction=s'	=>	\$provdirection,
+		'enabled=i'	=>	\$provenabled,
+		'tcam-optimise'	=>	\$tcam_optimise,
+		'force=i'	=>	\$applyforce,
+)) {
+
+		print "Invalid options\n";
+		exit;
+};
+
+
+#TEMPLATES
+#
+format dbStatusTopTemplate =
+
+TYPE		COUNT
+------------	---------
+.
+
+format dbStatusTemplate = 
+@<<<<<<<<<<<	@<<<<<<<<
+$type,$count
+.
+
+format ObjViewTopTemplate =
+
+E ID	TYPE			SCOPE	NAME		        	VALUE
+- ----	-------------		-------	--------------------------	-----------------------
+.
+
+format ObjViewTemplate =
+@<@<<<	@<<<<<<<<<<<<<<<<<<<	@<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<	^<<<<<<<<<<<<<<<<<<<<<<
+$enabled,$id,$type,$scope,$name,$value
+~~								^<<<<<<<<<<<<<<<<<<<<<<
+$value
+.
+
+
+format PolViewTopTemplate =
+
+E ID       TYPE         NAME         
+- ----  -------------   -------------
+.
+
+format PolViewTemplate =
+@<@<<<  @<<<<<<<<<<<<   @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+$enabled,$id,$type,$name
+.
+format RuleViewTopTemplate =
+
+E ID   PID SEQ  ACTION	PROTO		SIO		SPO		DIO			DPO		ANNOTATION
+- ---  --- ---  ------	------------	-----------	-----------	-----------		-----------	-------------------
+.
+format RuleViewTemplate =
+@<@<<< @<<<@<<< @<<<<<<	@<<<<<<<<<<<	@<<<<<<<<<<<<<<	@<<<<<<<<<<	@<<<<<<<<<<<<<<<	@<<<<<<<<<<	@<<<<<<<<<<<<<<<<<<
+$enabled,$id,$pol_id,$seq,$action,$proto_obj,$sio,$spo,$dio,$dpo,$annotation
+.
+format AppViewTopTemplate =
+E ID  PID	ROUTER    INTERFACE			DIRECTION  NEEDAPPLY
+- --- ---	--------  ---------        		---------  ---------
+.
+format AppViewTemplate =
+@<@<<<@<<<	@<<<<<<   @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<  @<
+$enabled,$id,$pol_id,$router,$interface,$direction,$needapply
+.
+
+exec ("perldoc -t $0") if ($help);
+
+$debug = 1 if (defined($debug) && ($debug < 2));
+my $apm = APM->new(debug=>$debug);
+my ($types,$typesbyid) = $apm->getTypesDB();
+my ($scopes,$scopesbyid) = $apm->getScopesDB();
+
+if ($version) {
+        print $apm->getVersion;
+        print "\n";
+        exit;
+}
+
+if ($newobj) {
+
+	unless ($provname && $provtype && $provvalue) {
+		print "usage: --newobj [--scope <SCOPE>] --name <NAME> --type <TYPE> --gtype <TYPE> --value <VALUE> --enabled [0|1]\n";
+		exit;
+	}
+
+	unless (defined($provenabled)) {
+		$provenabled = 1;
+	}
+
+	if (($provtype eq 'OBJ_GROUP') && ($provvalue eq 'OBJ_GROUP')) {	#User can not input correct type so do it for him/her
+		$provvalue = $types->{'OBJ_GROUP'};
+	}
+
+	$myobj = $apm->newObject (
+                        Scope => $provscope,
+                        Name  => $provname,
+                        Type  => $provtype,
+			Obj_Group_Type	=>	$provgtype,
+			Value => $provvalue, 
+			Enabled => $provenabled,
+	);
+
+	my $id = $myobj->getID;
+
+	print "Object $provname has ID $id in the DB\n";
+
+	exit;
+
+}
+
+
+if (($listobj) || ($listgroup) || ($listscope)) {	#All listing of objects done here, also group listing
+
+	my $objlist = $apm->listObject(
+					group=>$listgroup, 
+					scope=>$listscope
+				      );
+	$^=ObjViewTopTemplate;
+	$~=ObjViewTemplate;
+
+	foreach my $obj (sort @{$objlist}) {
+		$enabled	=	$obj->{enabled};
+		$id		=	$obj->{id};
+		$scope		=	$scopesbyid->{$obj->{scope}};
+		$name		=	$obj->{name};
+		$type		=	$typesbyid->{$obj->{type}};
+		if ($type eq 'OBJ_GROUP') {
+			$type .= "($typesbyid->{$obj->{obj_group_type}})";
+			my $memberlist = $apm->listObject($id);
+			foreach my $memberobj (@{$memberlist}) {
+				$value .= "(".$memberobj->{id}.") ".$memberobj->{name} . "\r";
+			}
+		}
+		else {
+			$value		=	$obj->{value};	
+		}
+		write;	
+	}
+
+	exit;
+
+}
+
+if ($getobj) {
+
+        my $obj = $apm->loadObject($getobj);
+        unless ($obj->getID) {
+                print "Can not locate object with ID $getobj\n";
+                exit;
+        }
+
+        $^=ObjViewTopTemplate;
+        $~=ObjViewTemplate;
+
+        $enabled        =       $obj->getEnabled;
+        $id             =       $getobj;
+	$type	   	=	$obj->getTypeS;
+        $name           =       $obj->getName;
+	if ($type eq 'OBJ_GROUP') {
+		my $objgrouptype = $obj->getObjGroupTypeS;
+		$type .= "($objgrouptype)";
+		my $memberlist = $apm->listObject($id);
+		foreach my $memberobj (@{$memberlist}) {
+			$value .= "(".$memberobj->{id}.") ".$memberobj->{name} . "\r";
+		}
+	}
+	else {
+        	$value          =       $obj->getValue;
+	}
+        write;
+
+	exit;
+
+}
+
+if ($editobj) {
+
+	my %edithash;
+
+	unless ($provname || $provtype || $provvalue || defined($provenabled)) {
+		print "you must specify an attribute to change\n";
+		exit;
+	}
+	else {
+		$edithash{name} = $provname if ($provname);
+		$edithash{id} = $provid if ($provid);
+		$edithash{type} = $provtype if ($provtype);
+		$edithash{obj_group_type} = $provgtype if ($provgtype);
+		$edithash{value} = $provvalue if ($provvalue);
+		$edithash{enabled} = $provenabled if (defined($provenabled));
+	}
+
+	my $object = $apm->loadObject($editobj);
+	unless ($object->getID) {
+		print "Can not locate object with ID $editobj\n";
+		exit;
+	}
+
+	$apm->editObject($object,\%edithash);
+
+	print "Object $editobj modified\n";
+	exit;
+	
+
+}
+
+if ($delobj) {
+
+	my $object = $apm->loadObject($delobj);
+	unless ($object->getID) {
+		print "Can not locate object with ID $delobj\n";
+		exit;
+	}
+
+	$object->destroy;
+
+	print "Object $delobj deleted\n";
+	exit;
+
+}	
+
+if ($groupadd) {
+
+	unless ($provid) {
+		print "You must specify the ID of the object to add, with --id <ID>\n";
+		exit;
+	}
+
+	my $gobject = $apm->loadObject($groupadd);
+	unless ($gobject->getID) {
+		print "Can not locate object with ID $groupadd\n";
+		exit;
+	}
+
+	my $object = $apm->loadObject($provid);
+	unless ($object->getID) {
+		print "Can not locate object with ID $provid\n";
+		exit;
+	}
+
+	$gobject->addMember($object);
+
+	print "Object Group $groupadd modified\n";
+
+	exit;
+
+}
+
+if ($groupdel) {
+
+        unless ($provid) {
+                print "You must specify the ID of the object to delete, with --id <ID>\n";
+                exit;
+        }
+
+        my $gobject = $apm->loadObject($groupdel);
+        unless ($gobject->getID) {
+                print "Can not locate object with ID $groupdel\n";
+                exit;
+        }
+
+        my $object = $apm->loadObject($provid);
+        unless ($object->getID) {
+                print "Can not locate object with ID $provid\n";
+                exit;
+        }
+
+        $gobject->delMember($object);
+
+        print "Object Group $groupdel modified\n";
+
+        exit;
+
+}
+
+if ($newpol) {
+
+        unless ($provname && $provtype) {
+                print "usage: --newpol --name <NAME> --type <TYPE> --enabled [0|1]\n";
+                exit;
+        }
+
+        unless (defined($provenabled)) {
+                $provenabled = 1;
+        }
+
+        $mypol = $apm->newPolicy (
+                        Name  => $provname,
+                        Type  => $provtype,
+                        Enabled => $provenabled,
+        );
+
+        my $id = $mypol->getID;
+
+        print "Policy $provname created in DB with ID $id\n";
+
+        exit;
+
+}
+
+if ($editpol) {
+
+        my %edithash;
+
+        unless ($provname || $provtype || defined($provenabled)) {
+                print "you must specify an attribute to change\n";
+                exit;
+        }
+        else {
+                $edithash{name} = $provname if ($provname);
+                $edithash{id} = $provid if ($provid);
+                $edithash{type} = $provtype if ($provtype);
+                $edithash{enabled} = $provenabled if (defined($provenabled));
+        }
+
+        my $policy = $apm->loadPolicy($editpol);
+        unless ($policy->getID) {
+                print "Can not locate policy with ID $editpol\n";
+                exit;
+        }
+
+        $apm->editPolicy($policy,\%edithash);
+
+        print "Policy $editpol modified\n";
+        exit;
+
+
+}
+
+if ($delpol) {
+
+        my $policy = $apm->loadPolicy($delpol);
+        unless ($policy->getID) {
+                print "Can not locate policy with ID $delpol\n";
+                exit;
+        }
+
+        $policy->destroy;
+
+        print "Policy $delpol deleted\n";
+        exit;
+
+}
+
+if (@mergepol) {
+
+	$apm->mergePol(@mergepol,$applymerge);
+
+}
+
+
+if ($listpol) {
+
+        my $pollist = $apm->listPolicy;
+        $^=PolViewTopTemplate;
+        $~=PolViewTemplate;
+
+        foreach my $pol (@{$pollist}) {
+                $enabled        =       $pol->{enabled};
+                $id             =       $pol->{id};
+                $type           =       $typesbyid->{$pol->{type}};
+                $name           =       $pol->{name};
+                write;
+        }
+
+        exit;
+
+}
+
+if ($getpol) {
+
+        my $pol = $apm->loadPolicy($getpol);
+        unless ($pol->getID) {
+                print "Can not locate policy with ID $getpol\n";
+                exit;
+        }
+
+        $^=PolViewTopTemplate;
+        $~=PolViewTemplate;
+
+        $enabled        =       $pol->getEnabled;
+        $id             =       $getpol;
+        $type           =       $pol->getTypeS;
+        $name           =       $pol->getName;
+        write;
+
+	exit;
+
+
+}
+
+if ($pol2acl) {
+
+	my $pol = $apm->loadPolicy($pol2acl);
+	print "\n!\n";
+	print $pol->getRulesA($tcam_optimise);
+	print "!\n\n";
+
+	exit;
+
+}
+
+if ($newrule) {
+
+	unless (
+		($provparentpol && $provaction) &&
+		($provproto || $provsio || $provspo || $provdio || $provdpo)
+	) {
+
+                print "usage: --newrule  --parent-pol <ID> --pol-seq [SEQ] --action [permit|deny] --proto [proto object] --s-ip-obj [source ip object] --s-port-obj [source port object] --d-ip-obj [dest ip object] --d-port-obj [dest port object] --annotation [annotation] --enabled [0|1]\n";
+                exit;
+        }
+
+        unless (defined($provenabled)) {
+                $provenabled = 1;
+        }
+
+	#Load in objects
+	my %newrule;
+	$newrule{pol_id} 	= $apm->loadPolicy($provparentpol);
+	my $poltype = $newrule{pol_id}->getType;
+	$newrule{pol_seq} 	= $provpolseq if ($provpolseq);
+	$newrule{action}	= $provaction;
+	if ($provproto) {
+		eval {	
+			$newrule{proto_obj}	= $apm->loadObject($provproto);
+		} || croak "Could not find object $provproto";
+	}
+        if ($provsio) {
+                eval {  
+                        $newrule{s_ip_obj}     = $apm->loadObject($provsio,$poltype);
+                } || croak "Could not find object $provsio for this type";
+        }
+        if ($provspo) { 
+                eval {  
+                        $newrule{s_port_obj}     = $apm->loadObject($provspo);
+                } || croak "Could not find object $provspo";
+        }
+        if ($provdio) { 
+                eval {  
+                        $newrule{d_ip_obj}     = $apm->loadObject($provdio,$poltype);
+                } || croak "Could not find object $provdio for this type";
+        }
+        if ($provdpo) {
+                eval {  
+                        $newrule{d_port_obj}     = $apm->loadObject($provdpo); 
+                } || croak "Could not find object $provdpo";
+        }
+
+	$newrule{annotation}	= $provannotation;
+
+	if (defined($provenabled)) {
+		if ($provenabled) {
+			$newrule{enabled}	=	1;
+		}
+		else {
+			$newrule{enabled}	=	0;
+		}
+	}
+	else {
+			$newrule{enabled}	=	1;
+	}	
+
+		
+        $myrul = $apm->newRule ( %newrule );
+
+        my $id = $myrul->getID;
+
+        print "Rule created in DB with ID $id\n";
+
+        exit;
+
+}
+
+
+if ($listrule) {
+
+        my $rulelist = $apm->listRule($provparentpol);
+        $^=RuleViewTopTemplate;
+        $~=RuleViewTemplate;
+
+        foreach my $rule (@{$rulelist}) {
+
+                $enabled        =       $rule->{enabled};
+                $id             =       $rule->{id};
+                $pol_id         =       $rule->{pol_id};
+		$seq		=	$rule->{pol_seq};
+		$action		=	$rule->{action};
+		$proto_obj	=	$rule->{proto_obj_name} || "ANY";
+		$sio		=	$rule->{s_ip_obj_name}	|| "ANY";
+		$spo		=	$rule->{s_port_obj_name}|| "ANY";
+		$dio		=	$rule->{d_ip_obj_name}	|| "ANY";
+		$dpo		=	$rule->{d_port_obj_name}|| "ANY";
+		$annotation	=	$rule->{annotation};
+                write;
+        }
+
+        exit;
+
+}
+
+if ($getrule) {
+
+        my $rule = $apm->loadRule($getrule);
+        unless ($rule->getID) {
+                print "Can not locate rule with ID $getrule\n";
+                exit;
+        }
+
+        $^=RuleViewTopTemplate;
+        $~=RuleViewTemplate;
+
+                $enabled        =       $rule->getEnabled;
+                $id             =       $rule->getID;
+                $pol_id         =       eval { return $rule->getPolID->getID		};
+                $seq            =       $rule->getPolSeq;
+                $action         =       $rule->getAction;
+                $proto_obj      =       eval { return $rule->getProtoObj->getName 	} 	|| "ANY";
+                $sio            =       eval { return $rule->getSIPObj->getName 	} 	|| "ANY";
+                $spo            =       eval { return $rule->getSPortObj->getName 	} 	|| "ANY";
+                $dio            =       eval { return $rule->getDIPObj->getName 	} 	|| "ANY";
+                $dpo            =       eval { return $rule->getDPortObj->getName 	} 	|| "ANY";
+                $annotation     =       $rule->getAnnotation;
+                write;
+
+	exit;
+
+}
+
+
+if ($editrule) {
+
+	unless ( $provparentpol || $provpolseq || $provaction || $provproto || $provsio || $provspo || $provdio || $provdpo || $provannotation || $provenabled) {
+                print "you must specify an attribute to change\n";
+                exit;
+        }
+
+        my %edithash;
+
+        $edithash{pol_seq}       = $provpolseq if ($provpolseq);
+        $edithash{action}        = $provaction if ($provaction);
+
+        if ($provparentpol) {
+                eval {
+                        $edithash{pol_id}     = $apm->loadPolicy($provparentpol);
+                } || croak "Could not find policy $provparentpol";
+        }
+        if ($provproto) {
+		if ($provproto eq 'ANY') {
+			$edithash{proto_obj}	=	'ANY';
+		}
+		else {
+	                eval {
+	                        $edithash{proto_obj}     = $apm->loadObject($provproto);
+	                } || croak "Could not find object $provproto";
+		}
+        }
+        if ($provsio) {
+                        if ($provsio eq 'ANY') {
+                                $edithash{s_ip_obj}    =       'ANY';
+                        }
+                        else {
+	                eval {
+	                        $edithash{s_ip_obj}     = $apm->loadObject($provsio,$poltype);
+	                } || croak "Could not find object $provsio for this type";
+		}
+        }
+        if ($provspo) {
+		if ($provspo eq 'ANY') {
+                                $edithash{s_port_obj}    =       'ANY';
+                        }
+                        else {
+                	eval {
+                       		$edithash{s_port_obj}     = $apm->loadObject($provspo);
+                	} || croak "Could not find object $provspo";
+		}
+        }
+        if ($provdio) {
+		if ($provdio eq 'ANY') {
+			$edithash{d_ip_obj}	=	'ANY';
+		}
+		else {
+	                eval {
+	                        $edithash{d_ip_obj}     = $apm->loadObject($provdio,$poltype);
+	                } || croak "Could not find object $provdio for this type";
+		}
+        }
+        if ($provdpo) {
+		if ($provdpo eq 'ANY') {
+                                $edithash{d_port_obj}     =       'ANY';
+                        }
+                        else {
+	                eval {
+	                        $edithash{d_port_obj}     = $apm->loadObject($provdpo);
+	                } || croak "Could not find object $provdpo";
+		}
+        }
+	$edithash{annotation}   = $provannotation 	if (defined($provannotation));
+	$edithash{enabled}      = $provenabled 		if (defined($provenabled));
+
+        my $rule = $apm->loadRule($editrule);
+        unless ($rule->getID) {
+                print "Can not locate rule with ID $editrule\n";
+                exit;
+        }
+
+        $apm->editRule($rule,\%edithash);
+
+        print "Rule $editrule modified\n";
+        exit;
+
+}
+
+if ($delrule) {
+
+        my $rule = $apm->loadRule($delrule);
+        unless ($rule->getID) {
+                print "Can not locate rule with ID $delrule\n";
+                exit;
+        }
+
+        $rule->destroy;
+
+        print "Rule $delrule deleted\n";
+        exit;
+
+}
+
+
+if (@moverule) {
+
+	my ($pid,$seq1,$action,$seq2) = @moverule;
+
+	unless ($pid && $seq1 && $action && $seq2) {
+		print "Usage: --moverule <parent policy id> <rule seq #1> [before|after] <rule seq #2>\n";
+		exit;
+	}
+
+	my $policy = $apm->loadPolicy($pid);
+
+	$policy->reSeqRule ($seq1,$action,$seq2);
+
+	exit;
+
+}
+
+if ($newapp) {
+
+	unless ($provapplypol && $provrouter && $provinterface && $provdirection) {
+                print "usage: --apply-pol <ID> --router <ROUTER> --interface <INTERFACE> --direction [in|out] --enabled [0|1]\n";
+                exit;
+        }
+
+        unless (defined($provenabled)) {
+                $provenabled = 1;
+        }
+
+	#Load in objects
+	my %newapp;
+	$newapp{pol_id} 	= $apm->loadPolicy($provapplypol);
+	my $poltype = $newapp{pol_id}->getType;
+	$newapp{router}		= $provrouter;
+	$newapp{interface}	= $provinterface;
+	$newapp{direction}	= $provdirection;
+
+	if (defined($provenabled)) {
+		if ($provenabled) {
+			$newapp{enabled}	=	1;
+		}
+		else {
+			$newapp{enabled}	=	0;
+		}
+	}
+	else {
+			$newapp{enabled}	=	1;
+	}	
+
+		
+        $myapp = $apm->newApplication ( %newapp );
+
+        my $id = $myapp->getID;
+
+        print "Application created in DB with ID $id\n";
+
+        exit;
+}
+
+if ($editapp) {
+
+        unless ($provapplypol || $provrouter || $provinterface || $provdirection || defined($provenabled)) {
+                print "you must specify an attribute to change\n";
+                exit;
+        }
+
+	my %edithash;
+
+        if ($provapplypol) {
+                eval {  
+                        $edithash{pol_id}     = $apm->loadPolicy($provapplypol);
+                } || croak "Could not find policy $provapplypol";
+        }
+
+	if (defined($provrouter)) 	{	$edithash{router}	= $provrouter;		};
+	if (defined($provinterface)) 	{	$edithash{interface}	= $provinterface;	};
+	if (defined($provdirection)) 	{	$edithash{direction}	= $provdirection;	};
+	if (defined($provenabled)) 	{	$edithash{enabled}	= $provenabled;		};
+
+        my $app = $apm->loadApplication($editapp);
+        unless ($app->getID) {
+                print "Can not locate application with ID $editapp\n";
+                exit;
+        }
+
+        $apm->editApplication($app,\%edithash);
+
+        print "Application $editapp modified\n";
+        exit;
+
+}
+
+if ($delapp) {
+
+        my $app = $apm->loadApplication($delapp);
+        unless ($app->getID) {
+                print "Can not locate application with ID $delapp\n";
+                exit;
+        }
+
+        $app->destroy;
+
+        print "Application $delapp deleted\n";
+        exit;
+
+}
+
+if ($listapp) {
+
+        my $applist = $apm->listApp($provapplypol);
+        $^=AppViewTopTemplate;
+        $~=AppViewTemplate;
+
+        foreach my $app (@{$applist}) {
+
+                $enabled        =       $app->{enabled};
+		$pol_id		=	$app->{pol_id};
+                $id             =       $app->{id};
+		$router		=	$app->{router};
+		$interface	=	$app->{interface};
+		$direction	=	$app->{direction};
+		$needapply	=	$app->{needapply};
+                write;
+        }
+
+        exit;
+
+}
+
+if ($getapp) {
+
+        my $app = $apm->loadApplication($getapp);
+        unless ($app->getID) {
+                print "Can not locate app with ID $getapp\n";
+                exit;
+        }
+
+        $^=AppViewTopTemplate;
+        $~=AppViewTemplate;
+
+                $enabled        =       $app->getEnabled;
+                $id             =       $app->getID;
+                $pol_id         =       eval { return $app->getPolID->getID            };
+		$router		=	$app->getRouter;
+		$interface	=	$app->getInterface;
+		$direction	=	$app->getDirection;
+		$needapply	=	$app->getNeedApply;
+                write;
+
+	exit;
+
+}
+
+if ($applyall) {
+
+	$apm->checkNeedApply($applyforce);
+
+	exit;
+
+}
+
+if ($import) {
+	my $config;
+	unless ( -e $import ) {
+		croak "File $import does not exist!\n";
+	}
+	open (IMPORT, "< $import") || croak "Can't open file $import $!\n";
+	while (<IMPORT>) {
+		$config .= $_;
+	}
+	close (IMPORT);
+	$apm->importConfig($config,$applyimport);
+
+	exit;
+}
+
+if ($dbstatus) {
+
+	my $status = $apm->dbStatus;
+
+	unless ($status) {
+		croak "Could not get DB status!!!";
+	}
+
+	$^=dbStatusTopTemplate;
+	$~=dbStatusTemplate;
+
+	foreach $type (sort keys %{$status}) {
+		$count = $$status{$type};
+		write;
+	}
+
+	print "\n";
+
+	exit;
+}
+

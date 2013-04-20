@@ -1,0 +1,13 @@
+1. delapp does not clean up acl after it DONE
+2. Multiple acls on an int? Need new constraint in DB DONE, NOT IN DB
+3. Null ACLs? DONE
+4. test transactions with unapplied transactions DONE
+5. Logging better DONE
+6. Importer DONE (took 12 days)
+7. Policy merger (for importer) DONE (took 1 hr)
+8. Proper transactional based spooler
+9. Object locking (cardinal vs ordinal objects)
+10. Decouple getrulesA from policy into new outputter engine
+11. Make "difference engine" which does a line by line diff in order to know how to apply an acl
+12. Make appapply use the difference engine
+13. Partition objects by scope, global scope avail to everybody
